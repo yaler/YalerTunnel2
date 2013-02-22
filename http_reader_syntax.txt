@@ -1,0 +1,55 @@
+Message = Request | Response
+Request =
+	*(EOL) | *(WS)
+	Request EOL
+	*(Header EOL)
+	EOL
+	[Body]
+Response =
+	*(EOL) | *(WS)
+	Status EOL
+	*(Header EOL)
+	EOL
+	[Body]
+Request = Method 1*(WS) Request-URI 1*(WS) HTTP-Version
+Status = HTTP-Version 1*(WS) Status-Code 1*(WS) Reason-Phrase
+Method = token
+Request-URI = 1*(unreserved | reserved)
+Status-Code = 3DIGIT
+Reason-Phrase = *<any OCTET except CTLs, but including WS>
+HTTP-Version = "HTTP" "/" 1*DIGIT "." 1*DIGIT
+Header = Field-Name *(WS) ":" Field-Value
+Body = *OCTET
+Field-Name = token
+Field-Value = *(Field-Content | LWS)
+Field-Content = <the OCTETs making up the field-value
+	and consisting of either *TEXT or combinations
+	of token, separators, and quoted-string>
+unreserved = ALPHA | DIGIT | "-" | "." | "_" | "~"
+reserved = gen-delims | sub-delims
+gen-delims = ":" | "/" | "?" | "#" | "[" | "]" | "@"
+sub-delims = "!" | "$" | "&" | "'" | "(" | ")" | "*" | "+" | "," | ";" | "="
+token = 1*<any CHAR except CTLs or separators>
+separators = "(" | ")" | "<" | ">" | "@"
+	| "," | ";" | ":" | "\" | <">
+	| "/" | "[" | "]" | "?" | "="
+	| "{" | "}" | SP | HT
+quoted-string = (<"> *(qdtext | quoted-pair) <">)
+qdtext = <any TEXT except <">>
+quoted-pair = "\" CHAR
+TEXT = <any OCTET except CTLs, but including LWS>
+LWS = [EOL] 1*(SP | HT)
+WS = SP | HT
+EOL = LF | CRLF
+OCTET = <any 8-bit sequence of data>
+CHAR = <any US-ASCII character (octets 0 - 127)>
+UPALPHA = <any US-ASCII uppercase letter "A".."Z">
+LOALPHA = <any US-ASCII lowercase letter "a".."z">
+ALPHA = UPALPHA | LOALPHA
+DIGIT = <any US-ASCII digit "0".."9">
+CTL = <any US-ASCII control character (octets 0 - 31) and DEL (127)>
+CR = <US-ASCII CR, carriage return (13)>
+LF = <US-ASCII LF, linefeed (10)>
+SP = <US-ASCII SP, space (32)>
+HT = <US-ASCII HT, horizontal-tab (9)>
+<"> = <US-ASCII double-quote mark (34)>

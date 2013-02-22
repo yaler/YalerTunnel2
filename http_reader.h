@@ -1,0 +1,64 @@
+/*
+** Copyright (c) 2013, Yaler GmbH, Switzerland
+** All rights reserved
+*/
+
+#ifndef HTTP_READER_H
+#define HTTP_READER_H
+
+#include <stddef.h>
+
+#define HTTP_READER_TYPE_REQUEST 0
+#define HTTP_READER_TYPE_RESPONSE 1
+
+#define HTTP_READER_STATE_EXPECTING_METHOD 0
+#define HTTP_READER_STATE_READING_METHOD 1
+#define HTTP_READER_STATE_COMPLETED_METHOD 2
+
+#define HTTP_READER_STATE_EXPECTING_URI 3
+#define HTTP_READER_STATE_READING_URI 4
+#define HTTP_READER_STATE_COMPLETED_URI 5
+
+#define HTTP_READER_STATE_EXPECTING_VERSION 6
+#define HTTP_READER_STATE_READING_VERSION 7
+#define HTTP_READER_STATE_COMPLETED_VERSION 8
+
+#define HTTP_READER_STATE_EXPECTING_STATUS 9
+#define HTTP_READER_STATE_READING_STATUS 10
+#define HTTP_READER_STATE_COMPLETED_STATUS 11
+
+#define HTTP_READER_STATE_EXPECTING_REASON 12
+#define HTTP_READER_STATE_READING_REASON 13
+#define HTTP_READER_STATE_COMPLETED_REASON 14
+
+#define HTTP_READER_STATE_EXPECTING_HEADER_NAME 15
+#define HTTP_READER_STATE_READING_HEADER_NAME 16
+#define HTTP_READER_STATE_COMPLETED_HEADER_NAME 17
+
+#define HTTP_READER_STATE_EXPECTING_HEADER_VALUE 18
+#define HTTP_READER_STATE_READING_HEADER_VALUE 19
+#define HTTP_READER_STATE_COMPLETED_HEADER_VALUE 20
+
+#define HTTP_READER_STATE_ENDING_HEADER_LINE 21
+#define HTTP_READER_STATE_ENDING_HEADER_LINES 22
+
+#define HTTP_READER_STATE_DONE 23
+#define HTTP_READER_STATE_ERROR 24
+
+struct http_reader {
+	/** readonly **/
+	int type;
+	int state;
+	int substate;
+	int in_quoted_pair;
+	int in_quoted_string;
+	char *result_token;
+	size_t result_length;
+};
+
+extern void http_reader_init (
+	struct http_reader* r, int type);
+extern size_t http_reader_read (
+	struct http_reader* r, char* buffer, size_t length);
+
+#endif
