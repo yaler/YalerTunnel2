@@ -1,5 +1,5 @@
 /*
-** Copyright (c) 2013, Yaler GmbH, Switzerland
+** Copyright (c) 2015, Yaler GmbH, Switzerland
 ** All rights reserved
 */
 
@@ -7,20 +7,36 @@
 #include <errno.h>
 #include <fcntl.h>
 #include <limits.h>
+#include <signal.h>
 #include <stdio.h>
 #include <unistd.h>
 #include <netinet/in.h>
 #include <netinet/tcp.h>
-#include <openssl/ssl.h>
 
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wlong-long"
+# include <openssl/ssl.h>
+#pragma clang diagnostic pop
+
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wc99-extensions"
+#pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-pedantic"
 #	include "udns/udns.h"
 #pragma GCC diagnostic pop
+#pragma clang diagnostic pop
 
 #include "http_reader.h"
 
+#if !(defined __APPLE__ && defined __MACH__)
 extern int snprintf(char* str, size_t size, char *format, ...);
+#endif
+
 extern int strncasecmp(const char *s1, const char *s2, size_t n);
+
+#if defined __APPLE__ && defined __MACH__
+#define MSG_NOSIGNAL SO_NOSIGPIPE
+#endif
 
 #define HT 9
 #define SP 32
@@ -28,6 +44,8 @@ extern int strncasecmp(const char *s1, const char *s2, size_t n);
 #define MODE_CLIENT 'c'
 #define MODE_SERVER 's'
 #define MODE_PROXY 'p'
+
+#define RELAY_SECURITY_TRANSPORT_PASSTHROUGH 1
 
 #define OP_BIND 1
 #define OP_ACCEPT 2
@@ -108,6 +126,7 @@ static char *yalerdomain;
 static int min_listeners = 1;
 static int max_sockets = INT_MAX;
 static int buffer_size = 65536;
+static int relay_security = 0;
 static time_t max_idle_time = 75;
 
 static time_t now;
@@ -158,41 +177,41 @@ static void compact_buffer (struct buffer* b) {
 	b->limit = buffer_size;
 }
 
-static char* ssl_error_str (int ssl_error) {
-	char *str;
+static char* ssl_error_msg (int ssl_error) {
+	char *msg;
 	switch (ssl_error) {
 		case SSL_ERROR_NONE:
-			str = "SSL_ERROR_NONE";
+			msg = "SSL_ERROR_NONE";
 			break;
 		case SSL_ERROR_ZERO_RETURN:
-			str = "SSL_ERROR_ZERO_RETURN";
+			msg = "SSL_ERROR_ZERO_RETURN";
 			break;
 		case SSL_ERROR_WANT_READ:
-			str = "SSL_ERROR_WANT_READ";
+			msg = "SSL_ERROR_WANT_READ";
 			break;
 		case SSL_ERROR_WANT_WRITE:
-			str = "SSL_ERROR_WANT_WRITE";
+			msg = "SSL_ERROR_WANT_WRITE";
 			break;
 		case SSL_ERROR_WANT_CONNECT:
-			str = "SSL_ERROR_WANT_CONNECT";
+			msg = "SSL_ERROR_WANT_CONNECT";
 			break;
 		case SSL_ERROR_WANT_ACCEPT:
-			str = "SSL_ERROR_WANT_ACCEPT";
+			msg = "SSL_ERROR_WANT_ACCEPT";
 			break;
 		case SSL_ERROR_WANT_X509_LOOKUP:
-			str = "SSL_ERROR_WANT_X509_LOOKUP";
+			msg = "SSL_ERROR_WANT_X509_LOOKUP";
 			break;
 		case SSL_ERROR_SYSCALL:
-			str = "SSL_ERROR_SYSCALL";
+			msg = "SSL_ERROR_SYSCALL";
 			break;
 		case SSL_ERROR_SSL:
-			str = "SSL_ERROR_SSL";
+			msg = "SSL_ERROR_SSL";
 			break;
 		default:
-			str = "";
+			msg = "";
 			break;
 	}
-	return str;
+	return msg;
 }
 
 static void eprintf (char* format, ...) {
@@ -234,6 +253,15 @@ static void log_error (char* msg, int error, char* file, int line) {
 	eprintf("%s:%d:%s@%s:%d\n", msg, error, strerror(error), file, line);
 }
 
+static void log_dns_error (char* msg, char* host,
+	int dns_error, char* file, int line)
+{
+	assert(msg != 0);
+	assert(file != 0);
+	eprintf("%s:%d:%s:%s@%s:%d\n",
+		msg, dns_error, dns_strerror(dns_error), host, file, line);
+}
+
 static void log_ssl_error (char* msg, int ssl_error, char* file, int line) {
 	assert(msg != 0);
 	assert(file != 0);
@@ -242,7 +270,7 @@ static void log_ssl_error (char* msg, int ssl_error, char* file, int line) {
 			msg, errno, strerror(errno), file, line);
 	} else {
 		eprintf("%s:%d:%s@%s:%d\n",
-			msg, ssl_error, ssl_error_str(ssl_error), file, line);
+			msg, ssl_error, ssl_error_msg(ssl_error), file, line);
 	}
 }
 
@@ -267,7 +295,7 @@ static void log_ssl_socket_error (char* msg, char* host, int port,
 			msg, errno, strerror(errno), host, port, file, line);
 	} else {
 		eprintf("%s:%d:%s:%s:%d@%s:%d\n",
-			msg, ssl_error, ssl_error_str(ssl_error), host, port, file, line);
+			msg, ssl_error, ssl_error_msg(ssl_error), host, port, file, line);
 	}
 }
 
@@ -306,6 +334,22 @@ static void set_nodelay (int fd) {
 	v = 1;
 	r = setsockopt(fd, IPPROTO_TCP, TCP_NODELAY, &v, sizeof v);
 	if (r == -1) {
+		log_error(ERROR_SYSCALL, errno, __FILE__, __LINE__);
+		exit(EXIT_FAILURE);
+	}
+}
+
+static void init_dns (int *fd) {
+	int r;
+	assert(fd != 0);
+	*fd = dns_init(0, 1);
+	if (*fd >= 0) {
+		r = dns_set_opts(0, "udpbuf:512");
+		if (r != 0) {
+			eprintf("%s:%s@%s:%d\n", ERROR_DNS, "dns_init", __FILE__, __LINE__);
+			exit(EXIT_FAILURE);
+		}
+	} else {
 		log_error(ERROR_SYSCALL, errno, __FILE__, __LINE__);
 		exit(EXIT_FAILURE);
 	}
@@ -414,7 +458,7 @@ static void prepare_ssl_handshake (struct socket_desc* s) {
 }
 
 static void prepare_writing_request (struct socket_desc* s) {
-	int r;
+	int r; char* request;
 	assert(buffer_size >= 0);
 	assert(s != 0);
 	assert(s->host != 0);
@@ -422,19 +466,30 @@ static void prepare_writing_request (struct socket_desc* s) {
 	assert(s->buffer.data != 0);
 	s->state = STATE_WRITING_REQUEST;
 	if (mode == MODE_CLIENT) {
-		r = snprintf(s->buffer.data, buffer_size,
+		request =
 			"CONNECT /%s HTTP/1.1\r\n"
-			"Host: %s:%d\r\n\r\n",
-			s->domain, s->host, s->port);
+			"Host: %s:%d\r\n\r\n";
 	} else {
 		assert((mode == MODE_SERVER) || (mode == MODE_PROXY));
-		r = snprintf(s->buffer.data, buffer_size,
-			"POST /%s HTTP/1.1\r\n"
-			"Upgrade: PTTH/1.0\r\n"
-			"Connection: Upgrade\r\n"
-			"Host: %s:%d\r\n\r\n",
-			s->domain, s->host, s->port);
+		if (relay_security == 0) {
+			request =
+				"POST /%s HTTP/1.1\r\n"
+				"Upgrade: PTTH/1.0\r\n"
+				"Connection: Upgrade\r\n"
+				"Host: %s:%d\r\n\r\n";
+		} else if (relay_security == RELAY_SECURITY_TRANSPORT_PASSTHROUGH) {
+			request =
+				"POST /%s HTTP/1.1\r\n"
+				"Upgrade: PTTH/1.0\r\n"
+				"Connection: Upgrade\r\n"
+				"Host: %s:%d\r\n"
+				"X-Relay-Security: transport/pass-through\r\n\r\n";
+		} else {
+			assert(0);
+		}
 	}
+	r = snprintf(s->buffer.data, buffer_size,
+		request, s->domain, s->host, s->port);
 	if ((0 <= r) || (r < buffer_size)) {
 		s->buffer.limit = r;
 		s->buffer.position = 0;
@@ -1353,7 +1408,7 @@ static void bind_socket (struct socket_desc* s, struct in_addr a) {
 static void handle_dns_callback (
 	struct dns_ctx* c, struct dns_rr_a4* r, void* d)
 {
-	struct socket_desc *s; (void) c;
+	struct socket_desc *s;
 	assert(d != 0);
 	s = (struct socket_desc *) d;
 	if ((r != 0) && (r->dnsa4_nrr > 0)) {
@@ -1365,11 +1420,11 @@ static void handle_dns_callback (
 			connect_socket(s, r->dnsa4_addr[0]);
 		}
 	} else if (s->ops == OP_BIND) {
-		eprintf("%s:%s@%s:%d\n", ERROR_DNS, s->host, __FILE__, __LINE__);
+		log_dns_error(ERROR_DNS, s->host, dns_status(c), __FILE__, __LINE__);
 		exit(EXIT_FAILURE);
 	} else {
 		assert(s->ops == OP_CONNECT);
-		eprintf("%s:%s@%s:%d\n", INFO_DNS_FAILURE, s->host, __FILE__, __LINE__);
+		log_dns_error(INFO_DNS_FAILURE, s->host, dns_status(c), __FILE__, __LINE__);
 		if (s->peer != 0) {
 			if (s->peer->ssl != 0) {
 				shutdown_ssl(s->peer);
@@ -1421,11 +1476,11 @@ static void open_socket (
 		} else if (r == 0) {
 			q = dns_submit_a4(0, host, 0, handle_dns_callback, s);
 			if (q == 0) {
-				eprintf("%s:%s@%s:%d\n", ERROR_DNS, host, __FILE__, __LINE__);
+				log_dns_error(ERROR_DNS, host, dns_status(0), __FILE__, __LINE__);
 				exit(EXIT_FAILURE);
 			}
 		} else {
-			eprintf("%s:%s@%s:%d\n", ERROR_DNS, host, __FILE__, __LINE__);
+			log_dns_error(ERROR_DNS, host, dns_status(0), __FILE__, __LINE__);
 			exit(EXIT_FAILURE);
 		}
 	} else {
@@ -1463,11 +1518,11 @@ static void open_server_socket (char* host, int port) {
 		} else if (r == 0) {
 			q = dns_submit_a4(0, host, 0, handle_dns_callback, s);
 			if (q == 0) {
-				eprintf("%s:%s@%s:%d\n", ERROR_DNS, host, __FILE__, __LINE__);
+				log_dns_error(ERROR_DNS, host, dns_status(0), __FILE__, __LINE__);
 				exit(EXIT_FAILURE);
 			}
 		} else {
-			eprintf("%s:%s@%s:%d\n", ERROR_DNS, host, __FILE__, __LINE__);
+			log_dns_error(ERROR_DNS, host, dns_status(0), __FILE__, __LINE__);
 			exit(EXIT_FAILURE);
 		}
 	} else {
@@ -1616,9 +1671,10 @@ static void set_fds (
 
 static void run_tunnel () {
 	int n, m, r, t, dnsfd, maxfd; fd_set readfds, writefds;
-	time_t cutoff; struct timeval tv, *timeout;
-	dnsfd = dns_init(0, 1);
-	if (dnsfd >= 0) {
+	void (*h)(int); time_t cutoff; struct timeval tv, *timeout;
+	h = signal(SIGPIPE, SIG_IGN);
+	if (h != SIG_ERR) {
+		init_dns(&dnsfd);
 		if (localssl || yalerssl) {
 			check_openssl_version();
 		}
@@ -1722,15 +1778,19 @@ static void run_tunnel () {
 				log_error(ERROR_SYSCALL, errno, __FILE__, __LINE__);
 				exit(EXIT_FAILURE);
 			}
+			if (dns_status(0) == DNS_E_TEMPFAIL) {
+				dns_close(0);
+				init_dns(&dnsfd);
+			}
 		}
 	} else {
-		eprintf("%s:%s@%s:%d\n", ERROR_DNS, "dns_init", __FILE__, __LINE__);
+		log_error(ERROR_SYSCALL, errno, __FILE__, __LINE__);
 		exit(EXIT_FAILURE);
 	}
 }
 
-static void prusage () {
-	fprintf(stderr, "YalerTunnel 2.0\n"
+static void print_usage () {
+	fprintf(stderr, "YalerTunnel v2.1.0\n"
 		"Usage: yalertunnel (client | server | proxy)"
 		" [ssl:]<local host>[:<port>]"
 		" [ssl:]<yaler host>[:<port>] <yaler domain>"
@@ -1785,6 +1845,13 @@ int main (int argc, char* argv[]) {
 					} else if (strcmp(argv[i], "-buffer-size") == 0) {
 						buffer_size = atoi(argv[i + 1]);
 						i += 2;
+					} else if (strcmp(argv[i], "-relay-security") == 0) {
+						if (strcmp(argv[i + 1], "transport/pass-through") == 0) {
+							relay_security = RELAY_SECURITY_TRANSPORT_PASSTHROUGH;
+							i += 2;
+						} else {
+							i = -1;
+						}
 					} else {
 						i = -1;
 					}
@@ -1799,13 +1866,13 @@ int main (int argc, char* argv[]) {
 			{
 				run_tunnel();
 			} else {
-				prusage();
+				print_usage();
 			}
 		} else {
-			prusage();
+			print_usage();
 		}
 	} else {
-		prusage();
+		print_usage();
 	}
 	exit(EXIT_FAILURE);
 }

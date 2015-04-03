@@ -1,5 +1,5 @@
 /*
-** Copyright (c) 2013, Yaler GmbH, Switzerland
+** Copyright (c) 2015, Yaler GmbH, Switzerland
 ** All rights reserved
 */
 
@@ -11,7 +11,9 @@
 
 #include "http_reader.h"
 
+#if !(defined __APPLE__ && defined __MACH__)
 extern int snprintf(char *str, size_t size, char *format, ...);
+#endif
 
 static void putlabel (int state) {
 	if ((state == HTTP_READER_STATE_READING_METHOD)

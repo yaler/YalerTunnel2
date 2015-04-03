@@ -1,5 +1,5 @@
 /*
-** Copyright (c) 2013, Yaler GmbH, Switzerland
+** Copyright (c) 2015, Yaler GmbH, Switzerland
 ** All rights reserved
 */
 
