@@ -1,6 +1,6 @@
 YalerTunnel - generic tunneling via the Yaler relay infrastructure
 
-Copyright (c) 2015, Yaler GmbH, Switzerland. All rights reserved.
+Copyright (c) 2019, Yaler GmbH, Switzerland. All rights reserved.
 
 YalerTunnel makes any service (e.g. a Web server or a SSH daemon) accessible
 from the Internet, no matter if the service is behind a firewall, a NAT, or a

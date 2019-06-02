@@ -1,5 +1,5 @@
 /*
-** Copyright (c) 2015, Yaler GmbH, Switzerland
+** Copyright (c) 2019, Yaler GmbH, Switzerland
 ** All rights reserved
 */
 
@@ -11,11 +11,7 @@
 
 #include "http_reader.h"
 
-#if !(defined __APPLE__ && defined __MACH__)
-extern int snprintf(char *str, size_t size, char *format, ...);
-#endif
-
-static void putlabel (int state) {
+static void putlabel(int state) {
 	if ((state == HTTP_READER_STATE_READING_METHOD)
 		|| (state == HTTP_READER_STATE_COMPLETED_METHOD))
 	{
@@ -47,21 +43,20 @@ static void putlabel (int state) {
 	}
 }
 
-static void putdata (char* data, size_t length) {
+static void putdata(char *data, size_t length) {
 	size_t i;
-	assert(data != 0);
+	assert(data != NULL);
 	for (i = 0; i != length; i++) {
 		fputc(data[i], stdout);
 	}
 }
 
-
-static size_t handle_buffer (
-	struct http_reader* r, char* buffer, size_t length)
+static size_t handle_buffer(
+	struct http_reader *r, char *buffer, size_t length)
 {
 	size_t n;
-	assert(r != 0);
-	assert(buffer != 0);
+	assert(r != NULL);
+	assert(buffer != NULL);
 	n = 0;
 	while ((n != length)
 			&& (r->state != HTTP_READER_STATE_DONE)
@@ -69,7 +64,7 @@ static size_t handle_buffer (
 	{
 		n += http_reader_read(r, &buffer[n], length - n);
 		printf("state = %d", r->state);
-		if (r->result_token != 0) {
+		if (r->result_token != NULL) {
 			fputc(',', stdout);
 			fputc(' ', stdout);
 			putlabel(r->state);
@@ -82,7 +77,7 @@ static size_t handle_buffer (
 	return n;
 }
 
-int main () {
+int main() {
 	size_t n;
 	int length;
 	char buffer[64 * 1024];
@@ -93,8 +88,9 @@ int main () {
 		"Upgrade:PTTH/1.0\r\n"
 		"Connection:Upgrade\r\n\r\n"
 		"CONNECT xyz HTTP/1.1\r\n"
-		"Host:try.yaler.net:80\r\n\r\n");
-	assert((0 <= length) && ((size_t) length < sizeof buffer));
+		"Host:try.yaler.net:80\r\n"
+		"X-Test-Header:abc½\r\n\r\n");
+	assert((0 <= length) && ((unsigned int)length < sizeof buffer));
 
 	n = 0;
 	printf("RESPONSE:\n");
@@ -103,5 +99,10 @@ int main () {
 	printf("REQUEST:\n");
 	http_reader_init(&reader, HTTP_READER_TYPE_REQUEST);
 	n += handle_buffer(&reader, &buffer[n], length - n);
+	assert(reader.state == HTTP_READER_STATE_DONE);
 	exit(EXIT_SUCCESS);
 }
+
+/*
+cc -std=c99 -pedantic -pedantic-errors -Werror -Wall -Wextra -g http_reader_test.c http_reader.o
+*/

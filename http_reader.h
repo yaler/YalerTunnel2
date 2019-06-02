@@ -1,5 +1,5 @@
 /*
-** Copyright (c) 2015, Yaler GmbH, Switzerland
+** Copyright (c) 2019, Yaler GmbH, Switzerland
 ** All rights reserved
 */
 
@@ -46,7 +46,6 @@
 #define HTTP_READER_STATE_ERROR 24
 
 struct http_reader {
-	/** readonly **/
 	int type;
 	int state;
 	int substate;
@@ -56,9 +55,9 @@ struct http_reader {
 	size_t result_length;
 };
 
-extern void http_reader_init (
-	struct http_reader* r, int type);
-extern size_t http_reader_read (
-	struct http_reader* r, char* buffer, size_t length);
+extern void http_reader_init(
+	struct http_reader *r, int type);
+extern size_t http_reader_read(
+	struct http_reader *r, char *buffer, size_t length);
 
 #endif

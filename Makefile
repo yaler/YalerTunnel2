@@ -1,50 +1,57 @@
-default: http_reader_test yalertunnel
+default: yalertunnel
 
-CC = gcc
-CFLAGS = -ansi -pedantic -g -O3 \
-	-Wall -Wextra -Wc++-compat -Wno-unknown-pragmas \
-	-O3 -fno-strict-overflow -fno-strict-aliasing
+SRC = \
+	http_reader.c \
+	tls/tls_verify.c \
+	udns/udns_bl.c \
+	udns/udns_codes.c \
+	udns/udns_dn.c \
+	udns/udns_dntosp.c \
+	udns/udns_init.c \
+	udns/udns_jran.c \
+	udns/udns_misc.c \
+	udns/udns_parse.c \
+	udns/udns_resolver.c \
+	udns/udns_rr_a.c \
+	udns/udns_rr_mx.c \
+	udns/udns_rr_naptr.c \
+	udns/udns_rr_ptr.c \
+	udns/udns_rr_srv.c \
+	udns/udns_rr_txt.c \
+	udns/udns_XtoX.c \
+	yalertunnel.c
 
-ifeq (, $(findstring clang, $(shell gcc --version)))
+OBJ = $(SRC:.c=.o)
+
+DEP = $(SRC:.c=.d)
+-include $(DEP)
+
+CPPFLAGS += -MMD -MP
+
+CFLAGS += -std=c99 -pedantic -pedantic-errors -g -O3 \
+	-fno-strict-overflow -fno-strict-aliasing \
+	-D_BSD_SOURCE \
+	-D_DEFAULT_SOURCE \
+	-DHAVE_GETOPT \
+	-DHAVE_INET_PTON_NTOP \
+	-DHAVE_IPv6 \
+	-DHAVE_POLL \
+	-Werror -Wall -Wextra
+
+ifneq ($(findstring clang, $(shell gcc --version)), clang)
 	CFLAGS += -fno-delete-null-pointer-checks
 endif
 
 ifdef OPENSSLDIR
 	CFLAGS += -I$(OPENSSLDIR)/include
-	OPENSSLLIBS = $(OPENSSLDIR)/lib/libssl.a $(OPENSSLDIR)/lib/libcrypto.a
-else
-	OPENSSLLIBS = -lssl -lcrypto
+	LDFLAGS += -L$(OPENSSLDIR)/lib
 endif
 
-CC-OBJECT = $(CC) $(CFLAGS) -c $(filter-out %.h, $^)
-CC-EXECUTABLE = $(CC) $(CFLAGS) -o $@ $(filter-out %.h, $^)
+LDLIBS += -lssl -lcrypto
 
-udns/libudns.a:
-	make -C udns libudns.a
-
-http_reader.o: http_reader.c http_reader.h
-	$(CC-OBJECT)
-
-http_reader_test: http_reader_test.c http_reader.o
-	$(CC-EXECUTABLE)
-
-yalertunnel: yalertunnel.c udns/libudns.a http_reader.o
-	$(CC-EXECUTABLE) $(OPENSSLLIBS)
+yalertunnel: $(OBJ)
 
 clean:
-	(cd udns && make clean)
-	rm -f yalertunnel
-	rm -rf yalertunnel.dSYM
-	rm -f http_reader_test
-	rm -rf http_reader_test.dSYM
-	rm -f http_reader.o
+	rm -f yalertunnel $(OBJ) $(DEP)
 
-distclean:
-	(cd udns && make distclean)
-	rm -f yalertunnel
-	rm -rf yalertunnel.dSYM
-	rm -f http_reader_test
-	rm -rf http_reader_test.dSYM
-	rm -f http_reader.o
-
-.PHONY: default clean distclean
+.PHONY: clean
