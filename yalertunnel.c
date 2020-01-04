@@ -1,5 +1,5 @@
 /*
-** Copyright (c) 2019, Yaler GmbH, Switzerland
+** Copyright (c) 2020, Yaler GmbH, Switzerland
 ** All rights reserved
 */
 
@@ -24,7 +24,7 @@
 
 #include "http_reader.h"
 
-#define VERSION "v2.3.0"
+#define VERSION "v2.3.1"
 
 #define HT 9
 #define SP 32
@@ -562,6 +562,9 @@ static void init_ssl_client_ctx(SSL_CTX **c) {
 		SSL_CTX_set_mode(*c, SSL_MODE_ACCEPT_MOVING_WRITE_BUFFER);
 		SSL_CTX_set_options(*c, SSL_OP_NO_SSLv2);
 		SSL_CTX_set_options(*c, SSL_OP_NO_SSLv3);
+		#ifdef SSL_OP_NO_RENGOTIATION
+			SSL_CTX_set_options(*c, SSL_OP_NO_RENGOTIATION);
+		#endif
 		SSL_CTX_set_info_callback(*c, handle_ssl_info);
 		if (certificate_verification) {
 			SSL_CTX_set_verify(*c, SSL_VERIFY_PEER, NULL);
@@ -1702,9 +1705,13 @@ static void do_ssl_handshake(struct socket_desc *s) {
 			}
 		}
 		if (r == 0) {
-			if (s->ssl->s3 != NULL) {
-				s->ssl->s3->flags |= SSL3_FLAGS_NO_RENEGOTIATE_CIPHERS;
-			}
+			#if OPENSSL_VERSION_NUMBER < 0x10100000L
+				#ifndef SSL_OP_NO_RENGOTIATION
+					if (s->ssl->s3 != NULL) {
+						s->ssl->s3->flags |= SSL3_FLAGS_NO_RENEGOTIATE_CIPHERS;
+					}
+				#endif
+			#endif
 			if (mode == MODE_CLIENT) {
 				update_ssl_session(s->ssl, &yaler_ssl_session);
 			} else {
